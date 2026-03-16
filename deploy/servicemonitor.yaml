@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: argo-workflows-metrics
+  namespace: argo
+  labels:
+    app: argo-workflows-metrics
+spec:
+  selector:
+    matchLabels:
+      app: argo-workflows-metrics
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics

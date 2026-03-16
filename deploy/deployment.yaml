@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argo-workflows-metrics
+  namespace: argo
+  labels:
+    app: argo-workflows-metrics
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: argo-workflows-metrics
+  template:
+    metadata:
+      labels:
+        app: argo-workflows-metrics
+    spec:
+      serviceAccountName: argo-workflows-metrics
+      containers:
+      - name: exporter
+        image: argo-workflows-metrics:latest
+        imagePullPolicy: IfNotPresent
+        args:
+        - -v=2
+        - -namespace=
+        - -port=8080
+        - -resync-period=5m
+        ports:
+        - name: metrics
+          containerPort: 8080
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: metrics
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: metrics
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
