@@ -1,4 +1,4 @@
-name: Docker Build and Push
+name: Build and Push Docker Image
 
 on:
   push:
@@ -13,20 +13,23 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  DOCKER_REGISTRY: docker.io
 
 jobs:
   ci:
-    name: Run CI
+    name: CI
     uses: ./.github/workflows/ci.yml
 
-  docker:
-    name: Build and Push Docker Image
+  docker-ghcr:
+    name: Build and Push to GHCR
     runs-on: ubuntu-latest
     needs: ci
+    if: github.event_name != 'pull_request'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -38,39 +41,160 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
+      - name: Extract metadata for GHCR
+        id: meta-ghcr
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-       type=semver,pattern={{version}}
+            type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-          type=semver,pattern={{major}}
+            type=semver,pattern={{major}}
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+      - name: Build and push to GHCR
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-        push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          push: true
+          tags: ${{ steps.meta-ghcr.outputs.tags }}
+          labels: ${{ steps.meta-ghcr.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          sbom: true
-          provenance: true
           build-args: |
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             VCS_REF=${{ github.sha }}
-            VERSION=${{ steps.meta.outputs.version }}
+            VERSION=${{ steps.meta-ghcr.outputs.version }}
+        continue-on-error: true
+
+  docker-hub:
+    name: Build and Push to Docker Hub
+    runs-on: ubuntu-latest
+    needs: ci
+    if: github.event_name != 'pull_request' && github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata for Docker Hub
+        id: meta-hub
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_REPOSITORY }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push to Docker Hub
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-hub.outputs.tags }}
+          labels: ${{ steps.meta-hub.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ steps.meta-hub.outputs.version }}
+        continue-on-error: true
+
+  docker-manifest:
+    name: Create and Push Multi-Platform Manifest
+    runs-on: ubuntu-latest
+    needs: [docker-ghcr, docker-hub]
+    if: github.event_name != 'pull_request'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        if: env.DOCKERHUB_REPOSITORY != ''
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Generate Docker Hub repository name
+        id: vars
+        run: |
+          REPO_NAME=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]' | sed 's/.*\///')
+          echo "repo-name=$REPO_NAME" >> $GITHUB_OUTPUT
+
+      - name: Create and push multi-arch manifest for GHCR
+        run: |
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:linux-amd64 \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:linux-arm64
+
+      - name: Create and push multi-arch manifest for Docker Hub
+        if: env.DOCKERHUB_REPOSITORY != ''
+        run: |
+          docker buildx imagetools create \
+            -t ${{ secrets.DOCKERHUB_REPOSITORY }}:latest \
+            -t ${{ secrets.DOCKERHUB_REPOSITORY }}:${{ github.sha }} \
+            ${{ secrets.DOCKERHUB_REPOSITORY }}:linux-amd64 \
+            ${{ secrets.DOCKERHUB_REPOSITORY }}:linux-arm64
+
+      - name: Create and push semver tags for GHCR
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          TAG=${GITHUB_REF#refs/tags/v}
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG} \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG%.*} \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG%%.*} \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:linux-amd64 \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:linux-arm64
+
+      - name: Create and push semver tags for Docker Hub
+        if: startsWith(github.ref, 'refs/tags/') && env.DOCKERHUB_REPOSITORY != ''
+        run: |
+          TAG=${GITHUB_REF#refs/tags/v}
+          docker buildx imagetools create \
+            -t ${{ secrets.DOCKERHUB_REPOSITORY }}:${TAG} \
+            -t ${{ secrets.DOCKERHUB_REPOSITORY }}:${TAG%.*} \
+            -t ${{ secrets.DOCKERHUB_REPOSITORY }}:${TAG%%.*} \
+            ${{ secrets.DOCKERHUB_REPOSITORY }}:linux-amd64 \
+            ${{ secrets.DOCKERHUB_REPOSITORY }}:linux-arm64
