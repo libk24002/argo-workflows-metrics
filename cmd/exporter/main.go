@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -83,8 +84,9 @@ func main() {
 	mux.HandleFunc("/", rootHandler)
 
 	server := &http.Server{
-		Addr:    ":" + port,
-		Handler: mux,
+		Addr:              ":" + port,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	// Start HTTP server
@@ -128,18 +130,22 @@ func buildConfig() (*rest.Config, error) {
 // healthzHandler handles health check requests
 func healthzHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
+	if _, err := io.WriteString(w, "OK"); err != nil {
+		klog.Errorf("Failed to write healthz response: %v", err)
+	}
 }
 
 // rootHandler handles root path requests
 func rootHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(`<html>
+	if _, err := io.WriteString(w, `<html>
 <head><title>Argo Workflows Metrics Exporter</title></head>
 <body>
 <h1>Argo Workflows Metrics Exporter</h1>
 <p><a href="/metrics">Metrics</a></p>
 <p><a href="/healthz">Health Check</a></p>
 </body>
-</html>`))
+</html>`); err != nil {
+		klog.Errorf("Failed to write root response: %v", err)
+	}
 }

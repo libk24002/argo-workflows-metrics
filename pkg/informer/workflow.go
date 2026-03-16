@@ -41,11 +41,13 @@ func NewWorkflowInformer(
 	}
 
 	// Register event handlers
-	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	if _, err := informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    wi.onAdd,
 		UpdateFunc: wi.onUpdate,
 		DeleteFunc: wi.onDelete,
-	})
+	}); err != nil {
+		klog.Fatalf("Failed to add event handler: %v", err)
+	}
 
 	return wi
 }
