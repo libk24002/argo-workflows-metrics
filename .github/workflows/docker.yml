@@ -72,4 +72,4 @@ jobs:
           build-args: |
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             VCS_REF=${{ github.sha }}
-            VERSION=${{ steps.meta.outputs.version }}
+            VERSION=${{ github.ref_name == 'main' && 'latest' || github.ref_name }}
