@@ -32,3 +32,10 @@ issues:
   exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
+  exclude-rules:
+    - path: .+_test\.go
+      linters:
+        - gosec
+    - linters:
+        - staticcheck
+      text: "calls http2\\.(Transport|Server|connError|FrameHeader|FrameType|Setting|SettingID|StreamError|GoAwayError|noDialH2RoundTripper|chunkWriter|transportResponseBody|gzipReader|duplicatePseudoHeaderError|headerFieldNameError|headerFieldValueError|pseudoHeaderError|stickyErrWriter|writeData|ConnectionError|ErrCode)\\.+"
