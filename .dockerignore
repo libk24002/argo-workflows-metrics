@@ -1,0 +1,39 @@
+# Git
+.git
+.gitignore
+
+# Build artifacts
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+*.test
+coverage.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Documentation
+*.md
+LICENSE
+CONTRIBUTING.md
+
+# GitHub
+.github/
+
+# Build
+Makefile
+Dockerfile
+.dockerignore
+
+# Misc
+.env
+.env.*
+*.log
