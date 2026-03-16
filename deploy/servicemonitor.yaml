@@ -2,7 +2,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: argo-workflows-metrics
-  namespace: argo
+  namespace: cnconti
   labels:
     app: argo-workflows-metrics
 spec:

@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: argo-workflows-metrics
-  namespace: argo
+  namespace: cnconti
   labels:
     app: argo-workflows-metrics
 spec:
