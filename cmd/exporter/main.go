@@ -13,8 +13,10 @@ import (
 	wfclientset "github.com/argoproj/argo-workflows/v3/pkg/client/clientset/versioned"
 	"github.com/conti/argo-workflows-metrics/pkg/collector"
 	"github.com/conti/argo-workflows-metrics/pkg/informer"
+	"github.com/conti/argo-workflows-metrics/pkg/informer/pod"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/pflag"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
@@ -65,6 +67,7 @@ func main() {
 
 	// Create collector
 	wfCollector := collector.NewWorkflowCollector()
+	podCollector := collector.NewPodCollector()
 
 	// Create and start informer
 	ctx, cancel := context.WithCancel(context.Background())
@@ -74,6 +77,20 @@ func main() {
 	go func() {
 		if err := wfInformer.Start(ctx); err != nil {
 			klog.Fatalf("Failed to start workflow informer: %v", err)
+		}
+	}()
+
+	// Create Kubernetes client for Pod informer
+	kubeClient, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		klog.Fatalf("Failed to create Kubernetes client: %v", err)
+	}
+
+	// Create and start Pod informer
+	podInformer := pod.NewPodInformer(kubeClient, namespace, resyncPeriod, podCollector)
+	go func() {
+		if err := podInformer.Start(ctx); err != nil {
+			klog.Fatalf("Failed to start pod informer: %v", err)
 		}
 	}()
 

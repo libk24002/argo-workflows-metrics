@@ -95,4 +95,22 @@ var (
 		},
 		[]string{"namespace", "name", "uid", "service_account", "priority"},
 	)
+
+	// ContainerCPUUsageSeconds tracks container CPU usage in seconds
+	ContainerCPUUsageSeconds = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "argo_workflow_container_cpu_usage_seconds_total",
+			Help: "Total CPU time consumed by containers in seconds",
+		},
+		[]string{"namespace", "workflow_name", "node_name", "container_name"},
+	)
+
+	// ContainerMemoryUsageBytes tracks container memory usage in bytes
+	ContainerMemoryUsageBytes = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "argo_workflow_container_memory_usage_bytes",
+			Help: "Memory usage by containers in bytes",
+		},
+		[]string{"namespace", "workflow_name", "node_name", "container_name"},
+	)
 )
