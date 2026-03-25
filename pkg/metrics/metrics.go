@@ -113,4 +113,73 @@ var (
 		},
 		[]string{"namespace", "workflow_name", "node_name", "container_name"},
 	)
+
+	// ExporterInformerSynced tracks informer sync status
+	ExporterInformerSynced = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "argo_exporter_informer_synced",
+			Help: "Informer cache sync status (1=synced, 0=not synced)",
+		},
+		[]string{"informer"},
+	)
+
+	// ExporterLastEventTimestamp tracks last event time per informer
+	ExporterLastEventTimestamp = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "argo_exporter_last_event_timestamp_seconds",
+			Help: "Unix timestamp of the last observed event",
+		},
+		[]string{"informer"},
+	)
+
+	// ExporterShuttingDown indicates exporter shutdown status
+	ExporterShuttingDown = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "argo_exporter_shutting_down",
+			Help: "Exporter shutdown state (1=shutting down, 0=running)",
+		},
+	)
+
+	// ExporterReadiness indicates readiness status
+	ExporterReadiness = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "argo_exporter_ready",
+			Help: "Exporter readiness status (1=ready, 0=not ready)",
+		},
+	)
+
+	// ExporterLiveness indicates liveness status
+	ExporterLiveness = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "argo_exporter_alive",
+			Help: "Exporter liveness status (1=alive, 0=unhealthy)",
+		},
+	)
+
+	// ExporterEventsTotal tracks informer event volume
+	ExporterEventsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "argo_exporter_events_total",
+			Help: "Total number of informer events handled",
+		},
+		[]string{"informer", "event"},
+	)
+
+	// ExporterEventHandlerErrorsTotal tracks informer handler errors
+	ExporterEventHandlerErrorsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "argo_exporter_event_handler_errors_total",
+			Help: "Total number of informer event handler errors",
+		},
+		[]string{"informer", "event"},
+	)
+
+	// ExporterInformerStartErrorsTotal tracks informer startup failures
+	ExporterInformerStartErrorsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "argo_exporter_informer_start_errors_total",
+			Help: "Total number of informer startup errors",
+		},
+		[]string{"informer"},
+	)
 )

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	wfclientset "github.com/argoproj/argo-workflows/v3/pkg/client/clientset/versioned"
 	"github.com/conti/argo-workflows-metrics/pkg/collector"
+	"github.com/conti/argo-workflows-metrics/pkg/health"
 	"github.com/conti/argo-workflows-metrics/pkg/informer"
 	"github.com/conti/argo-workflows-metrics/pkg/informer/pod"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -27,6 +29,8 @@ var (
 	namespace    string
 	port         string
 	resyncPeriod time.Duration
+	startupGrace time.Duration
+	eventStale   time.Duration
 	version      string
 )
 
@@ -35,6 +39,8 @@ func init() {
 	pflag.StringVar(&namespace, "namespace", "", "Namespace to watch (empty for all namespaces)")
 	pflag.StringVar(&port, "port", "8080", "Port to expose metrics on")
 	pflag.DurationVar(&resyncPeriod, "resync-period", 5*time.Minute, "Resync period for informer")
+	pflag.DurationVar(&startupGrace, "startup-grace-period", 2*time.Minute, "Startup grace period before event staleness is evaluated")
+	pflag.DurationVar(&eventStale, "event-stale-threshold", 30*time.Minute, "Max time without workflow/pod events before readiness fails")
 	pflag.StringVar(&version, "version", "dev", "Version of the exporter")
 	klog.InitFlags(nil)
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
@@ -68,12 +74,13 @@ func main() {
 	// Create collector
 	wfCollector := collector.NewWorkflowCollector()
 	podCollector := collector.NewPodCollector()
+	healthState := health.NewState(startupGrace, eventStale)
 
 	// Create and start informer
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	wfInformer := informer.NewWorkflowInformer(wfClient, namespace, resyncPeriod, wfCollector)
+	wfInformer := informer.NewWorkflowInformer(wfClient, namespace, resyncPeriod, wfCollector, healthState)
 	go func() {
 		if err := wfInformer.Start(ctx); err != nil {
 			klog.Fatalf("Failed to start workflow informer: %v", err)
@@ -87,7 +94,7 @@ func main() {
 	}
 
 	// Create and start Pod informer
-	podInformer := pod.NewPodInformer(kubeClient, namespace, resyncPeriod, podCollector)
+	podInformer := pod.NewPodInformer(kubeClient, namespace, resyncPeriod, podCollector, healthState)
 	go func() {
 		if err := podInformer.Start(ctx); err != nil {
 			klog.Fatalf("Failed to start pod informer: %v", err)
@@ -97,7 +104,8 @@ func main() {
 	// Setup HTTP server
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
-	mux.HandleFunc("/healthz", healthzHandler)
+	mux.HandleFunc("/healthz", healthzHandler(healthState))
+	mux.HandleFunc("/readyz", readyzHandler(healthState))
 	mux.HandleFunc("/", rootHandler)
 
 	server := &http.Server{
@@ -120,6 +128,7 @@ func main() {
 	<-sigCh
 
 	klog.Info("Shutting down gracefully...")
+	healthState.MarkShuttingDown()
 
 	// Shutdown HTTP server
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -145,11 +154,70 @@ func buildConfig() (*rest.Config, error) {
 }
 
 // healthzHandler handles health check requests
-func healthzHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	if _, err := io.WriteString(w, "OK"); err != nil {
-		klog.Errorf("Failed to write healthz response: %v", err)
+func healthzHandler(state *health.State) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		alive, reason := state.IsLive(time.Now())
+		if alive {
+			w.WriteHeader(http.StatusOK)
+		} else {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+
+		snapshot := state.Snapshot()
+		response := fmt.Sprintf(
+			"status=%s reason=%q workflow_synced=%t pod_synced=%t last_workflow_event=%s last_pod_event=%s\n",
+			boolToState(alive, "alive", "unhealthy"),
+			reason,
+			snapshot.WorkflowSynced,
+			snapshot.PodSynced,
+			formatEventTime(snapshot.LastWorkflowEvt),
+			formatEventTime(snapshot.LastPodEvt),
+		)
+
+		if _, err := io.WriteString(w, response); err != nil {
+			klog.Errorf("Failed to write healthz response: %v", err)
+		}
 	}
+}
+
+func readyzHandler(state *health.State) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ready, reason := state.IsReady(time.Now())
+		if ready {
+			w.WriteHeader(http.StatusOK)
+		} else {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+
+		snapshot := state.Snapshot()
+		response := fmt.Sprintf(
+			"status=%s reason=%q workflow_synced=%t pod_synced=%t last_workflow_event=%s last_pod_event=%s\n",
+			boolToState(ready, "ready", "not-ready"),
+			reason,
+			snapshot.WorkflowSynced,
+			snapshot.PodSynced,
+			formatEventTime(snapshot.LastWorkflowEvt),
+			formatEventTime(snapshot.LastPodEvt),
+		)
+
+		if _, err := io.WriteString(w, response); err != nil {
+			klog.Errorf("Failed to write readyz response: %v", err)
+		}
+	}
+}
+
+func boolToState(value bool, trueValue, falseValue string) string {
+	if value {
+		return trueValue
+	}
+	return falseValue
+}
+
+func formatEventTime(value time.Time) string {
+	if value.IsZero() {
+		return "never"
+	}
+	return value.Format(time.RFC3339)
 }
 
 // rootHandler handles root path requests
@@ -161,6 +229,7 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 <h1>Argo Workflows Metrics Exporter</h1>
 <p><a href="/metrics">Metrics</a></p>
 <p><a href="/healthz">Health Check</a></p>
+<p><a href="/readyz">Readiness Check</a></p>
 </body>
 </html>`); err != nil {
 		klog.Errorf("Failed to write root response: %v", err)

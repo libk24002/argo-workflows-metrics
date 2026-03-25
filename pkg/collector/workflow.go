@@ -3,6 +3,7 @@ package collector
 import (
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	wfv1 "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
@@ -12,29 +13,63 @@ import (
 
 // WorkflowCollector collects metrics from Workflow resources
 type WorkflowCollector struct {
-	workflows map[string]*wfv1.Workflow
+	mu                  sync.RWMutex
+	workflows           map[string]*wfv1.Workflow
+	lastNamespaces      map[string]struct{}
+	lastNamespacePhases map[string]map[string]struct{}
 }
 
 // NewWorkflowCollector creates a new WorkflowCollector
 func NewWorkflowCollector() *WorkflowCollector {
 	return &WorkflowCollector{
-		workflows: make(map[string]*wfv1.Workflow),
+		workflows:           make(map[string]*wfv1.Workflow),
+		lastNamespaces:      make(map[string]struct{}),
+		lastNamespacePhases: make(map[string]map[string]struct{}),
 	}
 }
 
 // AddWorkflow adds or updates a workflow in the collector
 func (c *WorkflowCollector) AddWorkflow(wf *wfv1.Workflow) {
+	if wf == nil {
+		return
+	}
+
 	key := fmt.Sprintf("%s/%s", wf.Namespace, wf.Name)
-	c.workflows[key] = wf
-	c.collectWorkflowMetrics(wf)
+	wfCopy := wf.DeepCopy()
+
+	c.mu.Lock()
+	previous := c.workflows[key]
+	c.workflows[key] = wfCopy
+	c.mu.Unlock()
+
+	if previous != nil {
+		c.deleteWorkflowSeries(previous)
+	}
+
+	c.collectWorkflowMetrics(wfCopy)
 	klog.V(4).Infof("Added workflow: %s", key)
 }
 
 // DeleteWorkflow removes a workflow from the collector
 func (c *WorkflowCollector) DeleteWorkflow(wf *wfv1.Workflow) {
+	if wf == nil {
+		return
+	}
+
 	key := fmt.Sprintf("%s/%s", wf.Namespace, wf.Name)
+
+	c.mu.Lock()
+	cached := c.workflows[key]
 	delete(c.workflows, key)
-	c.deleteWorkflowMetrics(wf)
+	c.mu.Unlock()
+
+	target := wf
+	if cached != nil {
+		target = cached
+	}
+
+	c.deleteWorkflowSeries(target)
+	c.updateAggregatedMetrics()
 	klog.V(4).Infof("Deleted workflow: %s", key)
 }
 
@@ -45,7 +80,7 @@ func (c *WorkflowCollector) collectWorkflowMetrics(wf *wfv1.Workflow) {
 	phase := string(wf.Status.Phase)
 
 	// Set workflow status phase
-	for _, p := range []string{"Pending", "Running", "Succeeded", "Failed", "Error"} {
+	for _, p := range workflowPhases {
 		value := 0.0
 		if p == phase {
 			value = 1.0
@@ -109,7 +144,6 @@ func (c *WorkflowCollector) collectWorkflowMetrics(wf *wfv1.Workflow) {
 	// Collect node metrics
 	c.collectNodeMetrics(wf)
 
-	// Update aggregated metrics
 	c.updateAggregatedMetrics()
 }
 
@@ -139,13 +173,11 @@ func (c *WorkflowCollector) collectNodeMetrics(wf *wfv1.Workflow) {
 	}
 }
 
-// deleteWorkflowMetrics removes metrics for a deleted workflow
-func (c *WorkflowCollector) deleteWorkflowMetrics(wf *wfv1.Workflow) {
+func (c *WorkflowCollector) deleteWorkflowSeries(wf *wfv1.Workflow) {
 	namespace := wf.Namespace
 	name := wf.Name
 
-	// Delete workflow status phase metrics
-	for _, p := range []string{"Pending", "Running", "Succeed", "Failed", "Error"} {
+	for _, p := range workflowPhases {
 		metrics.WorkflowStatusPhase.DeleteLabelValues(namespace, name, p)
 	}
 
@@ -181,37 +213,87 @@ func (c *WorkflowCollector) deleteWorkflowMetrics(wf *wfv1.Workflow) {
 		}
 	}
 
-	// Update aggregated metrics
-	c.updateAggregatedMetrics()
 }
 
 // updateAggregatedMetrics updates cluster-wide aggregated metrics
 func (c *WorkflowCollector) updateAggregatedMetrics() {
-	// Count workflows by namespace and phase
 	namespaceCounts := make(map[string]int)
 	namespacePhaseCount := make(map[string]map[string]int)
+	currentNamespaces := make(map[string]struct{})
+	currentNamespacePhases := make(map[string]map[string]struct{})
+	var staleNamespaces map[string]struct{}
+	var staleNamespacePhases map[string]map[string]struct{}
 
+	c.mu.Lock()
 	for _, wf := range c.workflows {
 		namespace := wf.Namespace
 		phase := string(wf.Status.Phase)
 
 		namespaceCounts[namespace]++
+		currentNamespaces[namespace] = struct{}{}
 
 		if namespacePhaseCount[namespace] == nil {
 			namespacePhaseCount[namespace] = make(map[string]int)
 		}
 		namespacePhaseCount[namespace][phase]++
+
+		if currentNamespacePhases[namespace] == nil {
+			currentNamespacePhases[namespace] = make(map[string]struct{})
+		}
+		currentNamespacePhases[namespace][phase] = struct{}{}
 	}
 
-	// Update workflow count metrics
+	staleNamespaces = diffNamespaces(c.lastNamespaces, currentNamespaces)
+	staleNamespacePhases = diffNamespacePhases(c.lastNamespacePhases, currentNamespacePhases)
+
+	c.lastNamespaces = currentNamespaces
+	c.lastNamespacePhases = currentNamespacePhases
+	c.mu.Unlock()
+
 	for namespace, count := range namespaceCounts {
 		metrics.WorkflowCount.WithLabelValues(namespace).Set(float64(count))
 	}
+	for namespace := range staleNamespaces {
+		metrics.WorkflowCount.DeleteLabelValues(namespace)
+	}
 
-	// Update workflow status total metrics
 	for namespace, phaseCount := range namespacePhaseCount {
 		for phase, count := range phaseCount {
 			metrics.WorkflowStatusTotal.WithLabelValues(namespace, phase).Set(float64(count))
 		}
 	}
+	for namespace, phases := range staleNamespacePhases {
+		for phase := range phases {
+			metrics.WorkflowStatusTotal.DeleteLabelValues(namespace, phase)
+		}
+	}
+}
+
+func diffNamespaces(previous, current map[string]struct{}) map[string]struct{} {
+	stale := make(map[string]struct{})
+	for namespace := range previous {
+		if _, ok := current[namespace]; ok {
+			continue
+		}
+		stale[namespace] = struct{}{}
+	}
+	return stale
+}
+
+func diffNamespacePhases(previous, current map[string]map[string]struct{}) map[string]map[string]struct{} {
+	stale := make(map[string]map[string]struct{})
+	for namespace, phases := range previous {
+		for phase := range phases {
+			if currentPhases, ok := current[namespace]; ok {
+				if _, exists := currentPhases[phase]; exists {
+					continue
+				}
+			}
+			if stale[namespace] == nil {
+				stale[namespace] = make(map[string]struct{})
+			}
+			stale[namespace][phase] = struct{}{}
+		}
+	}
+	return stale
 }

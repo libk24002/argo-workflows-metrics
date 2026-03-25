@@ -1,0 +1,221 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "10.0.0"
+    },
+    {
+      "type": "panel",
+      "id": "timeseries",
+      "name": "Time series",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "stat",
+      "name": "Stat",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "bargauge",
+      "name": "Bar gauge",
+      "version": ""
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Active Workflows",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [{ "expr": "argo:workflow:active_total", "refId": "A" }],
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 }
+    },
+    {
+      "type": "stat",
+      "title": "Pending Backlog",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [{ "expr": "argo:workflow:pending_backlog_cluster", "refId": "A" }],
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 }
+    },
+    {
+      "type": "stat",
+      "title": "Failure Ratio",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.2 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [{ "expr": "argo:workflow:failure_ratio_cluster", "refId": "A" }],
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 }
+    },
+    {
+      "type": "stat",
+      "title": "P95 Duration",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 3600 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [{ "expr": "argo:workflow:duration_p95_seconds_cluster", "refId": "A" }],
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Workflows by Phase",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 2,
+            "stacking": { "mode": "normal", "group": "A" }
+          }
+        },
+        "overrides": []
+      },
+      "targets": [{ "expr": "argo:workflow:total_by_phase", "legendFormat": "{{phase}}", "refId": "A" }],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 }
+    },
+    {
+      "type": "bargauge",
+      "title": "Top 10 Pending Namespaces",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": []
+      },
+      "targets": [{ "expr": "topk(10, argo:workflow:pending_by_namespace)", "legendFormat": "{{namespace}}", "refId": "A" }],
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 5 }
+    },
+    {
+      "type": "bargauge",
+      "title": "Top 10 Failure Ratio Namespaces",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit" },
+        "overrides": []
+      },
+      "targets": [{ "expr": "topk(10, argo:workflow:failed_ratio_by_namespace)", "legendFormat": "{{namespace}}", "refId": "A" }],
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 5 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Exporter Health Signals",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        { "expr": "argo_exporter_ready", "legendFormat": "ready", "refId": "A" },
+        { "expr": "argo_exporter_alive", "legendFormat": "alive", "refId": "B" },
+        { "expr": "argo_exporter_informer_synced", "legendFormat": "synced {{informer}}", "refId": "C" }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Exporter Event Rates",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "ops" },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "argo:exporter:event_rate_5m", "legendFormat": "event {{informer}}/{{event}}", "refId": "A" },
+        { "expr": "argo:exporter:event_handler_error_rate_5m", "legendFormat": "error {{informer}}/{{event}}", "refId": "B" }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 }
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "style": "light",
+  "tags": ["argo", "workflows", "admin", "sre"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Argo Workflows Admin Overview",
+  "uid": "argo-workflows-admin-overview",
+  "version": 1,
+  "weekStart": ""
+}
