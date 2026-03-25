@@ -8,6 +8,7 @@ Prometheus exporter for Argo Workflows metrics.
 - Exposes Prometheus metrics for workflow status, duration, and node information
 - Supports watching all namespaces or specific namespace
 - Lightweight and efficient using Kubernetes Informer pattern
+- Supports HA leader election mode for multi-replica deployment
 
 ## Quick Start
 
@@ -33,6 +34,7 @@ kubectl apply -f deploy/rbac.yaml
 # Deploy
 kubectl apply -f deploy/deployment.yaml
 kubectl apply -f deploy/service.yaml
+kubectl apply -f deploy/pdb.yaml
 kubectl apply -f deploy/prometheusrule.yaml
 ```
 
@@ -55,9 +57,16 @@ kubectl apply -f deploy/prometheusrule.yaml
 | `argo_exporter_shutting_down` | Gauge | Exporter shutdown state (1/0) | - |
 | `argo_exporter_ready` | Gauge | Exporter readiness state (1/0) | - |
 | `argo_exporter_alive` | Gauge | Exporter liveness state (1/0) | - |
+| `argo_exporter_is_leader` | Gauge | Leader state for this replica (1/0) | - |
+| `argo_exporter_leader_transitions_total` | Counter | Leader/follower transitions | `state` |
+| `argo_exporter_shard_info` | Gauge | Sharding mode/index metadata | `mode`, `shard_total`, `shard_index` |
 | `argo_exporter_events_total` | Counter | Informer events handled | `informer`, `event` |
 | `argo_exporter_event_handler_errors_total` | Counter | Informer handler errors | `informer`, `event` |
 | `argo_exporter_informer_start_errors_total` | Counter | Informer startup errors | `informer` |
+| `argo_exporter_queue_depth` | Gauge | Workqueue depth by informer | `informer` |
+| `argo_exporter_reconcile_duration_seconds` | Histogram | Reconcile duration | `informer`, `operation` |
+| `argo_exporter_reconcile_errors_total` | Counter | Reconcile failures | `informer`, `operation` |
+| `argo_exporter_full_reconcile_total` | Counter | Full reconcile runs | `informer`, `status` |
 
 ## Configuration
 
@@ -68,6 +77,18 @@ kubectl apply -f deploy/prometheusrule.yaml
 | `-resync-period` | 5m | Informer resync period |
 | `-startup-grace-period` | 2m | Startup grace before event staleness checks |
 | `-event-stale-threshold` | 30m | Max time without workflow/pod events before readiness fails |
+| `-enable-workflow-detail-metrics` | true | Enable high-cardinality per-workflow metrics |
+| `-enable-pod-container-metrics` | true | Enable per-container pod metrics |
+| `-worker-count` | 1 | Worker routines per informer queue |
+| `-full-reconcile-period` | 10m | Periodic full reconcile interval |
+| `-shard-total` | 1 | Total shard count for namespace hash sharding |
+| `-shard-index` | -1 | Shard index, derived from hostname when unset |
+| `-leader-elect` | true | Enable leader election for HA |
+| `-leader-election-id` | argo-workflows-metrics | Leader election lease name |
+| `-leader-election-namespace` | "" | Lease namespace (defaults to POD_NAMESPACE env) |
+| `-leader-election-lease-duration` | 30s | Leader election lease duration |
+| `-leader-election-renew-deadline` | 20s | Leader election renew deadline |
+| `-leader-election-retry-period` | 5s | Leader election retry period |
 
 ## Development
 
@@ -90,16 +111,18 @@ curl http://localhost:8080/healthz
 curl http://localhost:8080/readyz
 ```
 
-## Phase-1 Validation
+## Validation (Phase-1 + Phase-3 baseline)
 
 ```bash
 make validate-phase1
+make validate-ha
 
 # or run directly with parameters:
 # ./deploy/validate-phase1.sh <namespace> <service-name> <local-port> <remote-port>
 
 kubectl -n cnconti get pods -l app=argo-workflows-metrics
 kubectl -n cnconti get deploy argo-workflows-metrics
+kubectl -n cnconti get pdb argo-workflows-metrics
 kubectl -n cnconti describe clusterrole argo-workflows-metrics
 kubectl -n cnconti port-forward svc/argo-workflows-metrics 8080:8080
 ```
@@ -107,7 +130,7 @@ kubectl -n cnconti port-forward svc/argo-workflows-metrics 8080:8080
 ```bash
 curl -s http://localhost:8080/healthz
 curl -s http://localhost:8080/readyz
-curl -s http://localhost:8080/metrics | grep -E "argo_exporter_(ready|alive|informer_synced|last_event_timestamp_seconds|events_total)"
+curl -s http://localhost:8080/metrics | grep -E "argo_exporter_(ready|alive|is_leader|informer_synced|last_event_timestamp_seconds|events_total)"
 ```
 
 ```bash
@@ -117,6 +140,7 @@ argo:workflow:failed_ratio_by_namespace
 argo:workflow:duration_p95_seconds_by_namespace
 argo:exporter:event_rate_5m
 argo:exporter:event_handler_error_rate_5m
+argo:exporter:queue_depth_max
 ```
 
 ```bash
@@ -131,12 +155,28 @@ Admin alerts in `deploy/prometheusrule.yaml` use default thresholds:
 - failure ratio > 20% (10m)
 - pending backlog > 100 (15m)
 - p95 duration > 3600s (15m)
+- no leader replicas (3m)
+- leader conflict replicas > 1 (1m)
+- queue depth max > 200 (10m)
+- reconcile errors > 0 in 15m
 
 Grafana admin panel query catalog:
 - `deploy/grafana-admin-panels.md`
 
 Grafana importable dashboard JSON:
 - `deploy/grafana-admin-dashboard.json`
+
+Phase-3 implementation checklist:
+- `deploy/phase3-checklist.md`
+
+Sharding mode guide:
+- `deploy/sharding-mode.md`
+
+Cardinality budget report script:
+- `deploy/cardinality-budget-report.sh`
+
+Long-term storage integration guide:
+- `deploy/long-term-storage-guide.md`
 
 Import steps:
 1. Grafana -> Dashboards -> New -> Import

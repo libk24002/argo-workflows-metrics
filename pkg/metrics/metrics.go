@@ -156,6 +156,32 @@ var (
 		},
 	)
 
+	// ExporterIsLeader indicates whether this replica is leader
+	ExporterIsLeader = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "argo_exporter_is_leader",
+			Help: "Leader election state for this exporter replica (1=leader, 0=follower)",
+		},
+	)
+
+	// ExporterLeaderTransitionsTotal tracks leadership transitions
+	ExporterLeaderTransitionsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "argo_exporter_leader_transitions_total",
+			Help: "Total number of leader election state transitions",
+		},
+		[]string{"state"},
+	)
+
+	// ExporterShardInfo reports sharding mode and index
+	ExporterShardInfo = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "argo_exporter_shard_info",
+			Help: "Sharding configuration for this exporter replica",
+		},
+		[]string{"mode", "shard_total", "shard_index"},
+	)
+
 	// ExporterEventsTotal tracks informer event volume
 	ExporterEventsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
@@ -181,5 +207,42 @@ var (
 			Help: "Total number of informer startup errors",
 		},
 		[]string{"informer"},
+	)
+
+	// ExporterQueueDepth tracks current informer queue depth
+	ExporterQueueDepth = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "argo_exporter_queue_depth",
+			Help: "Current workqueue depth per informer",
+		},
+		[]string{"informer"},
+	)
+
+	// ExporterReconcileDurationSeconds tracks processing duration
+	ExporterReconcileDurationSeconds = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "argo_exporter_reconcile_duration_seconds",
+			Help:    "Duration of reconcile operations",
+			Buckets: []float64{0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 30},
+		},
+		[]string{"informer", "operation"},
+	)
+
+	// ExporterReconcileErrorsTotal tracks reconcile failures
+	ExporterReconcileErrorsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "argo_exporter_reconcile_errors_total",
+			Help: "Total number of reconcile failures",
+		},
+		[]string{"informer", "operation"},
+	)
+
+	// ExporterFullReconcileTotal tracks full reconcile outcomes
+	ExporterFullReconcileTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "argo_exporter_full_reconcile_total",
+			Help: "Total number of periodic full reconcile runs",
+		},
+		[]string{"informer", "status"},
 	)
 )

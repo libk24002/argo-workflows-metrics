@@ -36,8 +36,15 @@ kubectl -n "$NAMESPACE" get deploy "$SERVICE_NAME"
 kubectl -n "$NAMESPACE" get svc "$SERVICE_NAME"
 kubectl -n "$NAMESPACE" wait --for=condition=Available "deployment/$SERVICE_NAME" --timeout=180s
 
+replicas="$(kubectl -n "$NAMESPACE" get deploy "$SERVICE_NAME" -o jsonpath='{.spec.replicas}')"
+if [[ "$replicas" -lt 2 ]]; then
+  printf 'expected deployment replicas >= 2 for HA, got %s\n' "$replicas" >&2
+  exit 1
+fi
+
 kubectl get clusterrole argo-workflows-metrics >/dev/null
 kubectl -n "$NAMESPACE" get prometheusrule "$SERVICE_NAME" >/dev/null
+kubectl -n "$NAMESPACE" get pdb "$SERVICE_NAME" >/dev/null
 
 pf_log="/tmp/${SERVICE_NAME}-port-forward.log"
 kubectl -n "$NAMESPACE" port-forward "svc/$SERVICE_NAME" "${LOCAL_PORT}:${REMOTE_PORT}" >"$pf_log" 2>&1 &
@@ -77,8 +84,16 @@ if [[ "$metrics_resp" != *"argo_exporter_events_total"* ]]; then
   printf 'missing metric: argo_exporter_events_total\n' >&2
   exit 1
 fi
+if [[ "$metrics_resp" != *"argo_exporter_is_leader"* ]]; then
+  printf 'missing metric: argo_exporter_is_leader\n' >&2
+  exit 1
+fi
+if [[ "$metrics_resp" != *"argo_exporter_queue_depth"* ]]; then
+  printf 'missing metric: argo_exporter_queue_depth\n' >&2
+  exit 1
+fi
 
-printf '\nPhase-1 checks passed.\n\n'
+printf '\nPhase-1/3 baseline checks passed.\n\n'
 printf 'PromQL checks:\n'
 printf '%s\n' '  argo:workflow:active_total'
 printf '%s\n' '  argo:workflow:failed_ratio_by_namespace'

@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: argo-workflows-metrics
+  namespace: cnconti
+  labels:
+    app: argo-workflows-metrics
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: argo-workflows-metrics

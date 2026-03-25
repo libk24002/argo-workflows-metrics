@@ -18,6 +18,8 @@ type Snapshot struct {
 	PodSynced       bool
 	LastWorkflowEvt time.Time
 	LastPodEvt      time.Time
+	LeaderElect     bool
+	IsLeader        bool
 	ShuttingDown    bool
 }
 
@@ -30,14 +32,17 @@ type State struct {
 	podSynced       bool
 	lastWorkflowEvt time.Time
 	lastPodEvt      time.Time
+	leaderElect     bool
+	isLeader        bool
 	shuttingDown    bool
 }
 
-func NewState(startupGrace, staleThreshold time.Duration) *State {
+func NewState(startupGrace, staleThreshold time.Duration, leaderElect bool) *State {
 	s := &State{
 		startedAt:      time.Now(),
 		startupGrace:   startupGrace,
 		staleThreshold: staleThreshold,
+		leaderElect:    leaderElect,
 	}
 
 	metrics.ExporterInformerSynced.WithLabelValues(workflowInformer).Set(0)
@@ -47,8 +52,23 @@ func NewState(startupGrace, staleThreshold time.Duration) *State {
 	metrics.ExporterShuttingDown.Set(0)
 	metrics.ExporterReadiness.Set(0)
 	metrics.ExporterLiveness.Set(1)
+	metrics.ExporterIsLeader.Set(0)
 
 	return s
+}
+
+func (s *State) MarkLeader(elected bool) {
+	s.mu.Lock()
+	s.isLeader = elected
+	s.mu.Unlock()
+
+	if elected {
+		metrics.ExporterIsLeader.Set(1)
+		metrics.ExporterLeaderTransitionsTotal.WithLabelValues("leader").Inc()
+		return
+	}
+	metrics.ExporterIsLeader.Set(0)
+	metrics.ExporterLeaderTransitionsTotal.WithLabelValues("follower").Inc()
 }
 
 func (s *State) MarkWorkflowSynced() {
@@ -97,6 +117,8 @@ func (s *State) Snapshot() Snapshot {
 		PodSynced:       s.podSynced,
 		LastWorkflowEvt: s.lastWorkflowEvt,
 		LastPodEvt:      s.lastPodEvt,
+		LeaderElect:     s.leaderElect,
+		IsLeader:        s.isLeader,
 		ShuttingDown:    s.shuttingDown,
 	}
 }
@@ -118,6 +140,11 @@ func (s *State) IsReady(now time.Time) (bool, string) {
 	if snapshot.ShuttingDown {
 		metrics.ExporterReadiness.Set(0)
 		return false, "shutting down"
+	}
+
+	if snapshot.LeaderElect && !snapshot.IsLeader {
+		metrics.ExporterReadiness.Set(0)
+		return false, "not leader"
 	}
 
 	if !snapshot.WorkflowSynced {

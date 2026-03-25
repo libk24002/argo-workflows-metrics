@@ -14,14 +14,16 @@ import (
 // WorkflowCollector collects metrics from Workflow resources
 type WorkflowCollector struct {
 	mu                  sync.RWMutex
+	collectDetails      bool
 	workflows           map[string]*wfv1.Workflow
 	lastNamespaces      map[string]struct{}
 	lastNamespacePhases map[string]map[string]struct{}
 }
 
 // NewWorkflowCollector creates a new WorkflowCollector
-func NewWorkflowCollector() *WorkflowCollector {
+func NewWorkflowCollector(collectDetails bool) *WorkflowCollector {
 	return &WorkflowCollector{
+		collectDetails:      collectDetails,
 		workflows:           make(map[string]*wfv1.Workflow),
 		lastNamespaces:      make(map[string]struct{}),
 		lastNamespacePhases: make(map[string]map[string]struct{}),
@@ -41,6 +43,12 @@ func (c *WorkflowCollector) AddWorkflow(wf *wfv1.Workflow) {
 	previous := c.workflows[key]
 	c.workflows[key] = wfCopy
 	c.mu.Unlock()
+
+	if !c.collectDetails {
+		c.updateAggregatedMetrics()
+		klog.V(4).Infof("Added workflow: %s", key)
+		return
+	}
 
 	if previous != nil {
 		c.deleteWorkflowSeries(previous)
@@ -68,13 +76,48 @@ func (c *WorkflowCollector) DeleteWorkflow(wf *wfv1.Workflow) {
 		target = cached
 	}
 
-	c.deleteWorkflowSeries(target)
+	if c.collectDetails {
+		c.deleteWorkflowSeries(target)
+	}
 	c.updateAggregatedMetrics()
 	klog.V(4).Infof("Deleted workflow: %s", key)
 }
 
+// ReplaceWorkflows fully rebuilds workflow state from informer cache.
+func (c *WorkflowCollector) ReplaceWorkflows(workflows []*wfv1.Workflow) {
+	next := make(map[string]*wfv1.Workflow, len(workflows))
+	for _, wf := range workflows {
+		if wf == nil {
+			continue
+		}
+		key := fmt.Sprintf("%s/%s", wf.Namespace, wf.Name)
+		next[key] = wf.DeepCopy()
+	}
+
+	c.mu.Lock()
+	previous := c.workflows
+	c.workflows = next
+	c.mu.Unlock()
+
+	if c.collectDetails {
+		for _, wf := range previous {
+			c.deleteWorkflowSeries(wf)
+		}
+		for _, wf := range next {
+			c.collectWorkflowSeries(wf)
+		}
+	}
+
+	c.updateAggregatedMetrics()
+}
+
 // collectWorkflowMetrics collects metrics for a single workflow
 func (c *WorkflowCollector) collectWorkflowMetrics(wf *wfv1.Workflow) {
+	c.collectWorkflowSeries(wf)
+	c.updateAggregatedMetrics()
+}
+
+func (c *WorkflowCollector) collectWorkflowSeries(wf *wfv1.Workflow) {
 	namespace := wf.Namespace
 	name := wf.Name
 	phase := string(wf.Status.Phase)
@@ -143,8 +186,6 @@ func (c *WorkflowCollector) collectWorkflowMetrics(wf *wfv1.Workflow) {
 
 	// Collect node metrics
 	c.collectNodeMetrics(wf)
-
-	c.updateAggregatedMetrics()
 }
 
 // collectNodeMetrics collects metrics for workflow nodes

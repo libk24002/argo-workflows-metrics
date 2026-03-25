@@ -1,4 +1,4 @@
-.PHONY: build run docker-build docker-push clean test fmt vet validate-phase1
+.PHONY: build run docker-build docker-push clean test fmt vet validate-phase1 validate-ha cardinality-report
 
 BINARY_NAME=exporter
 DOCKER_IMAGE=argo-workflows-metrics
@@ -34,3 +34,8 @@ tidy:
 
 validate-phase1:
 	"$(abspath ./deploy/validate-phase1.sh)"
+
+validate-ha: validate-phase1
+
+cardinality-report:
+	"$(abspath ./deploy/cardinality-budget-report.sh)"

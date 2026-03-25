@@ -27,11 +27,15 @@ This panel list is aligned with `deploy/prometheusrule.yaml` and can be pasted d
 |------|------|--------|------|
 | Exporter Ready | Stat | `max(argo_exporter_ready)` | none |
 | Exporter Alive | Stat | `max(argo_exporter_alive)` | none |
+| Exporter Leaders | Stat | `argo:exporter:leaders` | none |
+| Replica Leader State | Time series | `argo_exporter_is_leader` | none |
 | Exporter Shutting Down | Stat | `max(argo_exporter_shutting_down)` | none |
 | Informer Synced | Time series | `argo_exporter_informer_synced` | none |
 | Last Event Age | Time series | `time() - argo_exporter_last_event_timestamp_seconds` | seconds |
+| Queue Depth | Time series | `argo_exporter_queue_depth` | none |
 | Event Rate (5m) | Time series | `argo:exporter:event_rate_5m` | ops |
 | Event Handler Error Rate (5m) | Time series | `argo:exporter:event_handler_error_rate_5m` | ops |
+| Reconcile Error Rate (5m) | Time series | `sum by (informer, operation) (rate(argo_exporter_reconcile_errors_total[5m]))` | ops |
 
 ## Suggested Thresholds
 
@@ -40,6 +44,9 @@ This panel list is aligned with `deploy/prometheusrule.yaml` and can be pasted d
 - P95 duration warning: `> 3600` seconds for `15m`
 - Informer unsynced warning: `== 0` for `10m`
 - No recent events warning: `time() - argo_exporter_last_event_timestamp_seconds > 3600` for `15m`
+- No leader critical: `argo:exporter:leaders == 0` for `3m`
+- Leader conflict critical: `argo:exporter:leaders > 1` for `1m`
+- Queue depth warning: `argo:exporter:queue_depth_max > 200` for `10m`
 
 ## Dashboard Layout Suggestion
 

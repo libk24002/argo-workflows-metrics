@@ -28,6 +28,10 @@ spec:
       expr: sum by (informer, event) (rate(argo_exporter_events_total[5m]))
     - record: argo:exporter:event_handler_error_rate_5m
       expr: sum by (informer, event) (rate(argo_exporter_event_handler_errors_total[5m]))
+    - record: argo:exporter:leaders
+      expr: sum(argo_exporter_is_leader)
+    - record: argo:exporter:queue_depth_max
+      expr: max by (informer) (argo_exporter_queue_depth)
   - name: argo-workflows-metrics-admin
     rules:
     - record: argo:workflow:total_by_phase
@@ -109,3 +113,35 @@ spec:
       annotations:
         summary: argo-workflows-metrics event handler errors detected
         description: Event handler errors were observed in the last 15 minutes.
+    - alert: ArgoExporterNoLeader
+      expr: (argo:exporter:leaders or on() vector(0)) == 0
+      for: 3m
+      labels:
+        severity: critical
+      annotations:
+        summary: argo-workflows-metrics has no elected leader
+        description: No exporter replica currently holds leader lease.
+    - alert: ArgoExporterLeaderConflict
+      expr: argo:exporter:leaders > 1
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: argo-workflows-metrics leader conflict detected
+        description: More than one exporter replica reports leader state.
+    - alert: ArgoExporterQueueDepthHigh
+      expr: argo:exporter:queue_depth_max > 200
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: argo-workflows-metrics queue depth is high
+        description: Informer {{ $labels.informer }} queue depth stayed above 200 for 10 minutes.
+    - alert: ArgoExporterReconcileErrors
+      expr: increase(argo_exporter_reconcile_errors_total[15m]) > 0
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: argo-workflows-metrics reconcile errors detected
+        description: Reconcile errors were observed in the last 15 minutes.

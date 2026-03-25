@@ -184,7 +184,9 @@
       "targets": [
         { "expr": "argo_exporter_ready", "legendFormat": "ready", "refId": "A" },
         { "expr": "argo_exporter_alive", "legendFormat": "alive", "refId": "B" },
-        { "expr": "argo_exporter_informer_synced", "legendFormat": "synced {{informer}}", "refId": "C" }
+        { "expr": "argo_exporter_informer_synced", "legendFormat": "synced {{informer}}", "refId": "C" },
+        { "expr": "argo_exporter_is_leader", "legendFormat": "leader state", "refId": "D" },
+        { "expr": "argo:exporter:leaders", "legendFormat": "leader replicas", "refId": "E" }
       ],
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 }
     },
@@ -201,7 +203,8 @@
       },
       "targets": [
         { "expr": "argo:exporter:event_rate_5m", "legendFormat": "event {{informer}}/{{event}}", "refId": "A" },
-        { "expr": "argo:exporter:event_handler_error_rate_5m", "legendFormat": "error {{informer}}/{{event}}", "refId": "B" }
+        { "expr": "argo:exporter:event_handler_error_rate_5m", "legendFormat": "error {{informer}}/{{event}}", "refId": "B" },
+        { "expr": "argo_exporter_queue_depth", "legendFormat": "queue {{informer}}", "refId": "C" }
       ],
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 }
     }

@@ -10,19 +10,25 @@ import (
 )
 
 type PodCollector struct {
-	mu              sync.Mutex
-	pods            map[string]*corev1.Pod
-	restartCounters map[string]int32
+	mu                    sync.Mutex
+	collectContainerStats bool
+	pods                  map[string]*corev1.Pod
+	restartCounters       map[string]int32
 }
 
-func NewPodCollector() *PodCollector {
+func NewPodCollector(collectContainerStats bool) *PodCollector {
 	return &PodCollector{
-		pods:            make(map[string]*corev1.Pod),
-		restartCounters: make(map[string]int32),
+		collectContainerStats: collectContainerStats,
+		pods:                  make(map[string]*corev1.Pod),
+		restartCounters:       make(map[string]int32),
 	}
 }
 
 func (c *PodCollector) AddPod(pod *corev1.Pod) {
+	if !c.collectContainerStats {
+		return
+	}
+
 	if pod == nil {
 		return
 	}
@@ -39,6 +45,10 @@ func (c *PodCollector) AddPod(pod *corev1.Pod) {
 }
 
 func (c *PodCollector) DeletePod(pod *corev1.Pod) {
+	if !c.collectContainerStats {
+		return
+	}
+
 	if pod == nil {
 		return
 	}

@@ -6,7 +6,7 @@ import (
 )
 
 func TestStateReadinessRequiresInformerSync(t *testing.T) {
-	state := NewState(0, 30*time.Minute)
+	state := NewState(0, 30*time.Minute, false)
 
 	ready, reason := state.IsReady(time.Now())
 	if ready {
@@ -33,7 +33,7 @@ func TestStateReadinessRequiresInformerSync(t *testing.T) {
 }
 
 func TestStateReadinessStaleEvent(t *testing.T) {
-	state := NewState(0, 10*time.Minute)
+	state := NewState(0, 10*time.Minute, false)
 	state.MarkWorkflowSynced()
 	state.MarkPodSynced()
 
@@ -52,7 +52,7 @@ func TestStateReadinessStaleEvent(t *testing.T) {
 }
 
 func TestStateLivenessShutdown(t *testing.T) {
-	state := NewState(0, 10*time.Minute)
+	state := NewState(0, 10*time.Minute, false)
 
 	alive, reason := state.IsLive(time.Now())
 	if !alive {
@@ -66,5 +66,25 @@ func TestStateLivenessShutdown(t *testing.T) {
 	}
 	if reason != "shutting down" {
 		t.Fatalf("unexpected shutdown reason: %s", reason)
+	}
+}
+
+func TestStateReadinessRequiresLeaderWhenElectionEnabled(t *testing.T) {
+	state := NewState(0, 10*time.Minute, true)
+	state.MarkWorkflowSynced()
+	state.MarkPodSynced()
+
+	ready, reason := state.IsReady(time.Now())
+	if ready {
+		t.Fatalf("expected not ready when not leader")
+	}
+	if reason != "not leader" {
+		t.Fatalf("unexpected reason: %s", reason)
+	}
+
+	state.MarkLeader(true)
+	ready, reason = state.IsReady(time.Now())
+	if !ready {
+		t.Fatalf("expected ready as leader, got: %s", reason)
 	}
 }
