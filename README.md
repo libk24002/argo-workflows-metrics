@@ -2,7 +2,73 @@
 
 Prometheus exporter for Argo Workflows metrics.
 
+## TL;DR
+
+`argo-workflows-metrics` is a cluster-admin-oriented observability and governance component for Argo Workflows.
+It provides a reliable metrics pipeline (HA leader election, optional namespace-hash sharding, queue-based processing, periodic full reconcile) and an operational layer (recording rules, alerts, admin dashboards) for platform teams.
+
+## 中文简介
+
+`argo-workflows-metrics` 面向集群管理员与平台团队，定位不是“只导出指标”的 exporter，而是 Workflow 运行治理组件。
+
+它通过 `Informer -> Workqueue -> Reconcile -> Prometheus` 的链路，提供高可用采集（Leader Election / 可选分片）、稳定处理（重试退避 + 周期全量校正）和治理消费（规则、告警、管理员看板）。
+
+如果你在管理多团队共享的 Argo Workflows 集群，这个项目重点帮助你快速回答三个问题：
+- 哪些命名空间/业务失败率在上升？
+- 哪些队列在积压、时延是否恶化？
+- 监控采集系统本身是否健康、是否需要扩容或治理？
+
+## Why This Project Exists
+
+In shared Kubernetes clusters, platform teams need a global view of workflow health and risk:
+- where failures are increasing,
+- where pending backlogs are building up,
+- whether the monitoring pipeline itself is healthy.
+
+This project is designed to answer those questions quickly and consistently.
+
+## Who It Is For
+
+- Platform/SRE teams operating multi-tenant Argo Workflows clusters
+- Cluster administrators responsible for reliability, cost, and governance
+- Internal workflow platform owners who need actionable global signals
+
+## What It Provides
+
+- Reliable collection path:
+  - Informer -> Workqueue -> Worker -> Reconcile
+  - Retry/backoff for transient failures
+  - Periodic full reconcile to recover from missed events
+- High availability and scale options:
+  - Leader election mode (default HA mode)
+  - Optional namespace-hash sharding mode
+- Admin governance layer:
+  - Recording rules for failure ratio, backlog, duration SLO proxies
+  - Alerting for platform and exporter health
+  - Grafana admin dashboard and panel query catalog
+- Operability and cost controls:
+  - Exporter self-observability (leader, queue depth, reconcile errors, sync status)
+  - Cardinality budget report script and high-cardinality metric toggles
+
+## Architecture (At a Glance)
+
+Kubernetes API (Workflow/Pod events)
+-> Shared Informers
+-> Rate-limited Workqueues
+-> Reconcile Workers (+ periodic full reconcile)
+-> Prometheus metrics
+-> Recording Rules / Alerts
+-> Grafana Admin Dashboard
+
+## 5-Minute Demo Flow
+
+1. Open admin dashboard: check active workflows, pending backlog, failure ratio, and p95 duration.
+2. Validate exporter health: ready/alive/leader status, queue depth, reconcile error rate.
+3. Drill into namespace-level top risk signals to identify noisy or failing tenants.
+
 ## Features
+
+This project focuses on cluster-level workflow governance, not only per-workflow metric export.
 
 - Monitors Workflow CRD resources in Kubernetes
 - Exposes Prometheus metrics for workflow status, duration, and node information
@@ -165,9 +231,6 @@ Grafana admin panel query catalog:
 
 Grafana importable dashboard JSON:
 - `deploy/grafana-admin-dashboard.json`
-
-Phase-3 implementation checklist:
-- `deploy/phase3-checklist.md`
 
 Sharding mode guide:
 - `deploy/sharding-mode.md`
